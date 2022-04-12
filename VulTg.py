@@ -1,14 +1,15 @@
+# coding:utf-8
 """
 Created on Mar 9, 2021
 @author: TBOsec   
 """
-# coding = utf-8
 import json
 import os
 import re
 from sys import exit
 
 import httpx
+from bs4 import BeautifulSoup
 
 user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4495.0 Safari/537.36"
 # 机器人地址
@@ -43,7 +44,7 @@ titles = []  # 文章标题
 times = []  # 通告时间
 descriptions = []  # 漏洞风险
 risks = []  # 风险等级
-
+versions = []  # 影响版本
 
 # 获取漏洞ID号
 def getID():
@@ -77,21 +78,52 @@ def getInfo():
     with httpx.Client() as client:
         for i in range(total - old_total):
             url = info_url + str(page_id[i])
-            res = client.get(url=url, headers=getInfo_headers)
-            # print(res.text)
-            a = re.compile(r"<h1>【安全通告】(.*?)</h1>", re.S)  # 获取标题
-            b = re.compile(r"攻击者利用(.*?)</div>", re.S)  # 漏洞风险
-            c = re.compile(r"风险等级.*?bold;\">(.*?)</span>", re.S)  # 风险等级
+            html_doc = httpx.get(url=url, headers=getInfo_headers)
 
-            e = re.compile(
-                r"<span id=\"date\" style=\"font-family: 微软雅黑; font-size: 14px;\">(.*?)</span>",
-                re.S,
-            )  # 通过时间
+            html_doc = html_doc.text
+            soup = BeautifulSoup(html_doc, "lxml")
 
-            titles.append(re.findall(a, res.text)[0])
-            descriptions.append(re.findall(b, res.text)[0])
-            risks.append(re.findall(c, res.text)[0])
-            times.append(re.findall(e, res.text)[0])
+            # 获取标题
+            title = soup.find("h1").string
+            titles.append(title)
+            # 通告时间
+            date = soup.find(id="date").string
+            times.append(date)
+
+            all = re.compile(r"影响版本.*?</div>(.*?)修复建议", re.S)
+            all = re.findall(all, html_doc)[0]
+            version = ""
+            if "安全版本" in all:
+                if "排查办法" in all:
+                    # print("1")
+                    data1 = re.compile(r"(.*?)<span.*?排查办法", re.S)
+                    data1 = re.findall(data1, all)[0]
+                    soup = BeautifulSoup(data1, "lxml")
+                    for info in soup.find("div").contents:
+                        if str(info) == "<br/>":
+                            version += "\n"
+                        else:
+                            version += info.string
+                    versions.append(version)
+                else:
+                    # print("2")
+                    data2 = re.compile(r"(.*?)安全版本", re.S)
+                    data2 = re.findall(data2, all)[0]
+                    soup = BeautifulSoup(data2, "lxml")
+                    for info in soup.find("div").contents:
+                        if str(info) == "<br/>":
+                            version += "\n"
+                        else:
+                            version += info.string
+                            # print(info.string, end="")
+                    versions.append(version)
+
+            # 风险等级
+            risk = re.compile(r"风险等级.*?bold;\">(.*?)</span>", re.S)
+            risks.append(re.findall(risk, html_doc)[0])
+            # 漏洞风险
+            description = re.compile(r"攻击者利用(.*?)</div>", re.S)
+            descriptions.append(re.findall(description, html_doc)[0])
 
 
 # 发送@all信息
@@ -106,11 +138,15 @@ def format_data():
 
     for i in range(total - old_total):
         url = info_url + str(page_id[i])
-        title = titles[i]
+        title = str(titles[i])
+        # print(type(title))
+        title = title.replace("【安全通告】", "")  # 替换多余的文字
         time = times[i]
         risk = risks[i]
         description = descriptions[i]
-        # print(title, time, risk, description)
+        version = versions[i]
+        version = version.replace("\n\n", "\n")  # 替换掉多余空行
+        # print(version)
         send_data = {
             "msgtype": "markdown",
             "markdown": {
@@ -122,12 +158,13 @@ def format_data():
                 + risk
                 + '**`\n>漏洞风险:<font color="comment">'
                 + description
-                + "</font>\n[查看详情🔎]("
+                + "</font>\n>影响版本:\n`"
+                + version
+                + "`[查看详情🔎]("
                 + url
                 + ")"
             },
         }
-        # print(send_data)
         send_tg(send_data)
 
 
@@ -138,7 +175,6 @@ def send_tg(send_data):
         r = httpx.post(url=webhook_addr, headers=tx_headers, json=send_data)
         with open(dirs + "tx_history.log", "a") as f:
             f.writelines(r.text + "\n")
-        # print(r.text)
 
     except:
         exit()
