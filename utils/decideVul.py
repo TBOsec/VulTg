@@ -1,10 +1,12 @@
+import os
+
 import utils.globalVariable as glv
 import utils.initFile as Init
 
 
 # 获取漏洞ID号
 def txVulID():
-
+    glv.set("dirs", os.environ["HOME"] + "/.config/vul_TG/")
     res, total = Init.req()
     glv.set("total", total)  # 设置全局变量
     page_id = []  # 文章ID号

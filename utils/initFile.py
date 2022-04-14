@@ -42,3 +42,4 @@ def init():
     # print(total)
     with open(dirs + "tx_id_history.log", "w") as f:
         f.write(str(total))
+    exit()
